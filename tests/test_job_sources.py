@@ -1,6 +1,9 @@
 
-from app.job_sources import clean_html, is_germany_location
-
+from app.job_sources import (
+    clean_html,
+    is_germany_location,
+    is_relevant_title,
+)
 
 def test_clean_html_removes_tags():
     result = clean_html(
@@ -34,3 +37,27 @@ def test_germany_location_rejects_netherlands():
 
 def test_germany_location_rejects_unknown_location():
     assert is_germany_location("") is False
+
+
+def test_relevant_title_accepts_backend_engineer():
+    assert is_relevant_title("Backend Engineer (m/f/d)") is True
+
+
+def test_relevant_title_accepts_machine_learning_engineer():
+    assert is_relevant_title("ML-Engineer - Machine Learning") is True
+
+
+def test_relevant_title_rejects_staff_engineer():
+    assert is_relevant_title("Staff Software Engineer") is False
+
+
+def test_relevant_title_rejects_working_student():
+    assert is_relevant_title("Working Student - Python Developer") is False
+
+
+def test_relevant_title_matches_search_terms():
+    assert is_relevant_title("Data Platform Engineer", "data engineer") is True
+
+
+def test_relevant_title_rejects_unrelated_role():
+    assert is_relevant_title("Sales Representative") is False

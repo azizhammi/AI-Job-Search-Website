@@ -1,4 +1,6 @@
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -20,6 +22,19 @@ class JobListing(BaseModel):
 
 class JobResponse(JobListing):
     id: int
+    application_status: str = "saved"
+    application_notes: str = ""
+
+
+class JobStatusUpdate(BaseModel):
+    application_status: Literal[
+        "saved",
+        "applied",
+        "interview",
+        "rejected",
+        "offer",
+    ]
+    application_notes: str = ""
 
 
 class JobScoreResponse(BaseModel):
@@ -39,3 +54,10 @@ class JobScoreResponse(BaseModel):
 class ScoredJobResponse(BaseModel):
     job: JobResponse
     relevance: JobScoreResponse
+
+
+
+class DashboardResponse(BaseModel):
+    total_jobs: int
+    status_counts: dict[str, int]
+    top_matches: list[ScoredJobResponse]

@@ -34,10 +34,13 @@ ROLE_KEYWORDS = (
 # These usually indicate a role unsuitable for our initial target.
 EXCLUDED_TITLE_KEYWORDS = (
     "senior",
+    "staff ",
     "lead ",
     "principal",
     "director",
     "head of",
+    "chief ",
+    "manager",
     "duales studium",
     "working student",
     "werkstudent",
@@ -45,6 +48,24 @@ EXCLUDED_TITLE_KEYWORDS = (
     "praktikum",
     "student assistant",
 )
+
+
+def is_relevant_title(title: str, keyword: str | None = None) -> bool:
+    """Check whether a job title fits our target roles and seniority."""
+    title_lower = title.casefold()
+
+    if any(word in title_lower for word in EXCLUDED_TITLE_KEYWORDS):
+        return False
+
+    known_role = any(role in title_lower for role in ROLE_KEYWORDS)
+
+    query_terms = keyword.casefold().split() if keyword and keyword.strip() else []
+    query_matches_title = (
+        bool(query_terms)
+        and all(term in title_lower for term in query_terms)
+    )
+
+    return known_role or query_matches_title
 
 
 def clean_html(value: str) -> str:
@@ -100,63 +121,100 @@ def is_germany_location(location: str) -> bool:
 
 
 
+
 def fetch_arbeitnow_jobs(
     limit: int = 20,
     keyword: str | None = None,
     relevant_only: bool = True,
 ) -> list[JobListing]:
-    response = httpx.get(ARBEITNOW_API_URL, timeout=15.0)
-    response.raise_for_status()
-
-    payload = response.json()
+    """Fetch and filter jobs from Arbeitnow, following available API pages."""
+    current_url = ARBEITNOW_API_URL
+    params = None
     jobs: list[JobListing] = []
-    query = keyword.strip().casefold() if keyword else None
+    seen_urls: set[str] = set()
 
-    for item in payload.get("data", []):
-        title = item.get("title") or "Untitled"
-        title_lower = title.casefold()
+    query_terms = keyword.casefold().split() if keyword and keyword.strip() else []
 
-
-        if relevant_only:
-            if any(word in title_lower for word in EXCLUDED_TITLE_KEYWORDS):
-                continue
-
-            if not any(word in title_lower for word in ROLE_KEYWORDS):
-                continue
-
-            location = item.get("location") or ""
-            if not is_germany_location(location):
-                continue
-    
-        
-        description = clean_html(item.get("description") or "")
-
-        job = JobListing(
-            title=title,
-            company=item.get("company_name") or "Unknown company",
-            location=item.get("location") or "Germany",
-            description=description,
-            url=item.get("url"),
-            source="arbeitnow",
-            required_skills=item.get("tags") or [],
+    while current_url and len(jobs) < limit:
+        response = httpx.get(
+            current_url,
+            params=params,
+            timeout=15.0,
         )
+        response.raise_for_status()
+        payload = response.json()
 
-        searchable_text = " ".join(
-            [
+        for item in payload.get("data", []):
+            title = item.get("title") or "Untitled"
+            title_lower = title.casefold()
+            location = item.get("location") or ""
+
+            if relevant_only:
+                if not is_relevant_title(title, keyword):
+                    continue
+
+                if not is_germany_location(location):
+                    continue
+
+            description = clean_html(item.get("description") or "")
+
+            job = JobListing(
+                title=title,
+                company=item.get("company_name") or "Unknown company",
+                location=location or "Germany",
+                description=description,
+                url=item.get("url"),
+                source="arbeitnow",
+                required_skills=item.get("tags") or [],
+            )
+
+            searchable_text = " ".join([
                 job.title,
                 job.company,
                 job.location,
                 job.description,
                 *job.required_skills,
-            ]
-        ).casefold()
+            ]).casefold()
 
-        if query and query not in searchable_text:
-            continue
+            # Match all search words, not necessarily the exact phrase.
+            if query_terms and not all(
+                term in searchable_text for term in query_terms
+            ):
+                continue
 
-        jobs.append(job)
+            if job.url and job.url in seen_urls:
+                continue
 
-        if len(jobs) >= limit:
-            break
+            if job.url:
+                seen_urls.add(job.url)
 
-    return jobs
+            jobs.append(job)
+
+            if len(jobs) >= limit:
+                break
+
+        # Follow the next URL supplied by the API, when available.
+        links = payload.get("links") or {}
+        next_url = links.get("next")
+
+        if next_url:
+            current_url = next_url
+            params = None
+        else:
+            # Some paginated APIs provide page numbers through metadata.
+            meta = payload.get("meta") or {}
+            current_page = meta.get("current_page")
+            last_page = meta.get("last_page")
+
+            if (
+                isinstance(current_page, int)
+                and isinstance(last_page, int)
+                and current_page < last_page
+            ):
+                current_url = ARBEITNOW_API_URL
+                params = {"page": current_page + 1}
+            else:
+                break
+
+    return jobs[:limit]
+
