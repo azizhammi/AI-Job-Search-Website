@@ -1,4 +1,4 @@
-# AI Job Copilot
+# AI Job Searcher
 
 A simple job-search and application-tracking web app built with Python, FastAPI, Streamlit, and SQLite.
 
